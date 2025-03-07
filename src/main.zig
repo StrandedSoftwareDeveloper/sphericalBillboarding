@@ -5,6 +5,11 @@ const glfw = @import("mach-glfw");
 const vec = @import("vector.zig");
 const mat = @import("matrix.zig");
 const c = @cImport({
+    @cDefine("STB_IMAGE_IMPLEMENTATION", {});
+    @cDefine("STBI_NO_SIMD", {});
+    @cDefine("STBI_NO_GIF", {});
+    @cDefine("STBI_NO_HDR", {});
+    @cDefine("STBI_NO_TGA", {});
     @cInclude("stb_image.h");
 });
 
@@ -164,6 +169,8 @@ pub fn main() !void {
     
     //gl.PolygonMode(gl.FRONT_AND_BACK, gl.LINE);
     
+    std.debug.print("Loading/generating models...\n", .{});
+    
     var sphere: Model = try Model.sphere(planetShaderID, allocator);
     defer sphere.deinit();
     
@@ -182,25 +189,26 @@ pub fn main() !void {
     var line: Model = try Model.load("models/line.obj", shaderID, allocator);
     defer line.deinit();
     
+    std.debug.print("Loading textures...\n", .{});
     
-    var xAxis: Texture = Texture.load("textures/outX.png");
-    defer xAxis.unload();
+    var xAxis: Texture = Texture.load(allocator, "textures/outX.png.raw");
+    defer xAxis.unload(allocator);
     
-    var yAxis: Texture = Texture.load("textures/outY.png");
-    defer yAxis.unload();
+    var yAxis: Texture = Texture.load(allocator, "textures/outY.png.raw");
+    defer yAxis.unload(allocator);
     
-    var zAxis: Texture = Texture.load("textures/outZ.png");
-    defer zAxis.unload();
+    var zAxis: Texture = Texture.load(allocator, "textures/outZ.png.raw");
+    defer zAxis.unload(allocator);
     
     
-    var xHeight: Texture = Texture.load("textures/heightX.png");
-    defer xHeight.unload();
+    var xHeight: Texture = Texture.load(allocator, "textures/heightX.png.raw");
+    defer xHeight.unload(allocator);
     
-    var yHeight: Texture = Texture.load("textures/heightY.png");
-    defer yHeight.unload();
+    var yHeight: Texture = Texture.load(allocator, "textures/heightY.png.raw");
+    defer yHeight.unload(allocator);
     
-    var zHeight: Texture = Texture.load("textures/heightZ.png");
-    defer zHeight.unload();
+    var zHeight: Texture = Texture.load(allocator, "textures/heightZ.png.raw");
+    defer zHeight.unload(allocator);
     
     const startTime: i64 = std.time.milliTimestamp();
     var time: f64 = 0.0;
@@ -331,6 +339,10 @@ pub fn main() !void {
     }
 }
 
+fn quantize(val: f64, snapInterval: f64) f64 {
+    return @round(val / snapInterval) * snapInterval;
+}
+
 const Texture = struct {
     id: u32,
     image: Image,
@@ -352,15 +364,15 @@ const Texture = struct {
         return out;
     }
     
-    pub fn load(comptime path: []const u8) Texture {
-        const image: Image = Image.load(path);
+    pub fn load(allocator: std.mem.Allocator, comptime path: []const u8) Texture {
+        const image: Image = Image.load(allocator, path);
         const out: Texture = init(image);
         return out;
     }
     
-    pub fn unload(texture: *Texture) void {
+    pub fn unload(texture: *Texture, allocator: std.mem.Allocator) void {
         texture.id = 0;
-        texture.image.unload();
+        texture.image.unload(allocator);
     }
 };
 
@@ -379,17 +391,32 @@ const Image = struct {
     pub fn deinit(self: Image, allocator: std.mem.Allocator) void {
         allocator.free(self.data);
     }
+    
+    fn loadRaw(allocator: std.mem.Allocator, comptime path: []const u8, width: *c_int, height: *c_int, channels: *c_int, req_channels: c_int) [*c]u8 {
+        width.* = 1024;
+        height.* = 512;
+        channels.* = 3;
+        _ = req_channels;
+        
+        const out: []u8 = allocator.alloc(u8, @intCast(width.* * height.* * channels.*)) catch unreachable;
+        out[0] = 0;
+        @memcpy(out, @embedFile(path));
+        
+        return @ptrCast(out);
+    }
 
-    pub fn load(comptime path: []const u8) Image {
+    pub fn load(allocator: std.mem.Allocator, comptime path: []const u8) Image {
         var out: Image = .{.data = undefined, .width = 0, .height = 0, .channels = 0};
 
-        const raw_data = @embedFile(path);
+        //const raw_data = @embedFile(path);
+        //_ = allocator;
         
         var n: c_int = 0;
         var width: c_int = 0;
         var height: c_int = 0;
         //const data: [*c]u8 = c.stbi_load(path, &width, &height, &n, 3);
-        const data: [*c]u8 = c.stbi_load_from_memory(raw_data, raw_data.len, &width, &height, &n, 3);
+        //const data: [*c]u8 = c.stbi_load_from_memory(raw_data, raw_data.len, &width, &height, &n, 3);
+        const data: [*c]u8 = loadRaw(allocator, path, &width, &height, &n, 3);
         if (data == null) {
             std.debug.print("ERROR: Failed to load \"{s}\"\n", .{path});
             @panic("Panic: Failed to load image\n");
@@ -399,6 +426,11 @@ const Image = struct {
         out.height = @intCast(height);
         out.channels = 3;
         out.data = data[0..out.width*out.height*3];
+        
+        //const file: std.fs.File = std.fs.cwd().createFile("src/" ++ path ++ ".raw", .{}) catch unreachable;
+        //defer file.close();
+        
+        //file.writeAll(out.data) catch unreachable;
 
         return out;
     }
@@ -407,8 +439,9 @@ const Image = struct {
         _ = c.stbi_write_png(path, @as(c_int, @intCast(img.width)), @as(c_int, @intCast(img.height)), @as(c_int, @intCast(img.channels)), @ptrCast(img.data), @as(c_int, @intCast(img.width*img.channels)));
     }
 
-    pub fn unload(self: *Image) void {
-        c.stbi_image_free(self.data.ptr);
+    pub fn unload(self: *Image, allocator: std.mem.Allocator) void {
+        //c.stbi_image_free(self.data.ptr);
+        allocator.free(self.data);
     }
 };
 

@@ -41,7 +41,7 @@ pub fn build(b: *std.Build) void {
     
     exe.linkLibC();
     exe.addIncludePath(.{ .cwd_relative = "include/" });
-    exe.addCSourceFile(.{ .file = .{ .cwd_relative = "src/stb_image_impl.c" } });
+    //exe.addCSourceFile(.{ .file = .{ .cwd_relative = "src/stb_image_impl.c" } });
     
     // Choose the OpenGL API, version, profile and extensions you want to generate bindings for.
     const gl_bindings = @import("zigglgen").generateBindingsModule(b, .{
@@ -68,7 +68,13 @@ pub fn build(b: *std.Build) void {
     // This declares intent for the executable to be installed into the
     // standard location when the user invokes the "install" step (the default
     // step when running `zig build`).
-    b.installArtifact(exe);
+    const no_bin = b.option(bool, "no-bin", "skip emitting binary") orelse false;
+    if (no_bin) {
+        b.getInstallStep().dependOn(&exe.step);
+    } else {
+        b.installArtifact(exe);
+    }
+    //b.installArtifact(exe);
 
     // This *creates* a Run step in the build graph, to be executed when another
     // step is evaluated that depends on it. The next line below will establish
