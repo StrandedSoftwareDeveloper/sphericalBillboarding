@@ -1,8 +1,39 @@
 const std = @import("std");
 const vec = @import("vector.zig");
+const mat = @import("matrix.zig");
+
+fn quantize(val: f64, snapInterval: f64) f64 {
+    return @round(val / snapInterval) * snapInterval;
+}
 
 pub const Quaternion = struct {
     val: vec.Vector4, //w = scalar, x = i, y = j, z = k
+    
+    //From https://en.wikipedia.org/wiki/Rotation_matrix#Quaternion
+    //Note: May not work!!
+    pub fn fromMatrix(m: mat.Mat4) Quaternion {
+        const r: f64 = @sqrt(1.0 + m.r0.x - m.r1.y - m.r2.z);
+        const s: f64 = 1.0 / (2.0 * r);
+        const w = 0.5 * r;
+        const x: f64 = (m.r2.y - m.r1.z) * s;
+        const y: f64 = (m.r0.z - m.r2.x) * s;
+        const z: f64 = (m.r1.x - m.r0.y) * s;
+        return .{.val = .{.w = w, .x = x, .y = y, .z = z}};
+    }
+    
+    pub fn lookAt(forward: vec.Vector3d, up: vec.Vector3d) Quaternion {
+        _ = up;
+        //const normalUp: vec.Vector3d = .{.x = 0.0, .y = 0.0, .z = 1.0}; //vec.Vector3d = up.cross(forward).normalize();
+        //const rotAxis: vec.Vector3d = vec.Vector3d.cross(normalUp, forward).normalize();
+        //const rotAngle = std.math.acos(vec.Vector3d.dot(normalUp, forward));
+        const projection: vec.Vector2(f64) = .{.x = forward.x, .y = forward.z};
+        const rise: f64 = forward.y;
+        const run: f64 = projection.length();
+        const slope: f64 = rise / run;
+        const q1: Quaternion = fromAxisAngle(.{.x = 0.0, .y = 1.0, .z = 0.0}, @mod(quantize(projection.getAngle() - std.math.pi * 0.5, std.math.tau / 32.0), std.math.tau));
+        const q2: Quaternion = fromAxisAngle(.{.x = 1.0, .y = 0.0, .z = 0.0}, quantize(std.math.atan(slope), std.math.tau / 32.0));
+        return q2.multQuat(q1);
+    }
     
     //Implemented from https://www.youtube.com/watch?v=Hhzgaq5PKPo
     //Note: Seems to be right handed if +z is forward

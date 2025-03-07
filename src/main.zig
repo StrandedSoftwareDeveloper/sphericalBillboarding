@@ -4,6 +4,7 @@ const obj = @import("obj");
 const glfw = @import("mach-glfw");
 const vec = @import("vector.zig");
 const mat = @import("matrix.zig");
+const quat = @import("quaternion.zig");
 const c = @cImport({
     @cDefine("STB_IMAGE_IMPLEMENTATION", {});
     @cDefine("STBI_NO_SIMD", {});
@@ -31,7 +32,7 @@ var doTime: bool = true;
 
 var camera: Camera = .{.pos = .{.x = 4_000_000.0, .y = 0.0, .z = -5.0}, //.rot = .{.x = 0.0, .y = 0.0, .z = 0.0, .w = 1.0},
     .forward = .{.x = 0.0, .y = 0.0, .z = 1.0}, .up = .{.x = 0.0, .y = 1.0, .z = 0.0}, .right = .{.x = 1.0, .y = 0.0, .z = 0.0},
-    .fov = 90.0, .nearClip = 0.01, .farClip = 100.0, .speed = 0.1, .sensitivity = 0.005, .aspect = 640.0/480.0,
+    .fov = 90.0, .nearClip = 0.01, .farClip = 100.0, .speed = 0.01, .sensitivity = 0.005, .aspect = 640.0/480.0,
 };
 
 var camera2: Camera = .{.pos = .{.x = 0.0, .y = 0.0, .z = -5.0}, //.rot = .{.x = 0.0, .y = 0.0, .z = 0.0, .w = 1.0},
@@ -171,7 +172,7 @@ pub fn main() !void {
     
     std.debug.print("Loading/generating models...\n", .{});
     
-    var sphere: Model = try Model.sphere(planetShaderID, allocator);
+    var sphere: Model = try Model.load("models/cubeSphere.obj", planetShaderID, allocator); //try Model.sphere(planetShaderID, allocator);
     defer sphere.deinit();
     
     var sphere2: Model = try Model.sphere(shaderID, allocator);
@@ -233,6 +234,7 @@ pub fn main() !void {
             camera.pos = camera.pos.sub(camera.up.multScalar(camera.speed));
         }
         //std.debug.print("x:{d:.2} y:{d:.2} z:{d:.2}\n", .{camera.pos.x, camera.pos.y, camera.pos.z});
+        camera.pos.y = 0.0;
         
         if (mouseCaptured) {
             window.setInputModeCursor(.disabled);
@@ -260,14 +262,22 @@ pub fn main() !void {
         }
         
         sphere.world = mat.Mat4.fromAxisAngle(.{.x = 0.0, .y = 1.0, .z = 0.0}, time * std.math.tau * 0.01);
-        sphere.world = sphere.world.multMatrix4(mat.Mat4.fromAxisAngle(.{.x = 0.0, .y = 0.0, .z = 1.0}, std.math.degreesToRadians(23.44)));
+        sphere.world = sphere.world.multMatrix4(mat.Mat4.fromAxisAngle(.{.x = 0.0, .y = 0.0, .z = 1.0}, std.math.degreesToRadians(0.0)));
         //sphere.world = mat.Mat4.identity();
         setShaderMatrix(planetShaderID, "sphereWorld", sphere.world);
         
         const forward: vec.Vector3d = vec.Vector3d.sub(.{.x = 4000000.0, .y = 0.0, .z = 0.0}, camera.pos).normalize();
         const up: vec.Vector3d = .{.x = 0.0, .y = 1.0, .z = 0.0};
         
-        sphere.world = mat.Mat4.lookAt(forward, up).invertPosRot();
+        sphere.world = mat.Mat4.lookAt(forward, up);
+        //const q: quat.Quaternion = quat.Quaternion.fromMatrix(sphere.world);
+        const q: quat.Quaternion = quat.Quaternion.lookAt(forward, up);
+        //q.val.w = quantize(q.val.w, 0.1);
+        //var axisAngle: vec.Vector4 = q.toAxisAngle();
+        //axisAngle.w = quantize(axisAngle.w, 0.1);
+        //q = quat.Quaternion.fromAxisAngle(.{.x = axisAngle.x, .y = axisAngle.y, .z = axisAngle.z}, axisAngle.w);
+        //q.val = q.val.normalize();
+        sphere.world = mat.Mat4.fromQuat(q).invertPosRot();
         setShaderMatrix(planetShaderID, "view", sphere.world);
         sphere.world = sphere.world.setPos(.{.x = 4000000.0, .y = 0.0, .z = 0.0});
         sphere.world = mat.Mat4.multMatrix4(camera.viewMatrix(), sphere.world);
@@ -337,10 +347,6 @@ pub fn main() !void {
             time += 1.0;
         }
     }
-}
-
-fn quantize(val: f64, snapInterval: f64) f64 {
-    return @round(val / snapInterval) * snapInterval;
 }
 
 const Texture = struct {
