@@ -116,6 +116,13 @@ pub const Vector3f = struct {
     pub fn zero() Vector3f {
         return .{ .x = 0.0, .y = 0.0, .z = 0.0 };
     }
+    
+    //Note: Takes `actual` and `expected` are swapped from std.testing.expectEqual()!
+    pub fn expectEqual(actual: Vector3f, expected: Vector3f, tolerance: f32) !void {
+        try std.testing.expectApproxEqAbs(expected.x, actual.x, tolerance);
+        try std.testing.expectApproxEqAbs(expected.y, actual.y, tolerance);
+        try std.testing.expectApproxEqAbs(expected.z, actual.z, tolerance);
+    }
 };
 
 pub const Vector3d = struct {
@@ -169,6 +176,13 @@ pub const Vector3d = struct {
 
     pub fn zero() Vector3d {
         return .{ .x = 0.0, .y = 0.0, .z = 0.0 };
+    }
+    
+    //Note: Takes `actual` and `expected` are swapped from std.testing.expectEqual()!
+    pub fn expectEqual(actual: Vector3d, expected: Vector3d, tolerance: f64) !void {
+        try std.testing.expectApproxEqAbs(expected.x, actual.x, tolerance);
+        try std.testing.expectApproxEqAbs(expected.y, actual.y, tolerance);
+        try std.testing.expectApproxEqAbs(expected.z, actual.z, tolerance);
     }
 };
 

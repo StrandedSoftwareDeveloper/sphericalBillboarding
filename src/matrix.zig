@@ -1,7 +1,7 @@
 const std = @import("std");
 const vec = @import("vector.zig");
+const quat = @import("quaternion.zig");
 
-//TODO: Test all of this
 pub const Mat4 = struct {
     r0: vec.Vector4,
     r1: vec.Vector4,
@@ -164,17 +164,17 @@ pub const Mat4 = struct {
     }
 
     //From https://en.wikipedia.org/wiki/Quaternions_and_spatial_rotation#Quaternion-derived_rotation_matrix
-    pub fn fromQuat(q: vec.Vector4) Mat4 {
+    pub fn fromQuat(q: quat.Quaternion) Mat4 {
         return .{ //r=w, i=x, j=y, k=z
-            .r0 = .{.x = 1.0-2*(q.y*q.y + q.z*q.z), .y = 2*(q.x*q.y - q.z*q.w),     .z = 2*(q.x*q.z + q.y*q.w),     .w = 0.0},
-            .r1 = .{.x = 2*(q.x*q.y + q.z*q.w),     .y = 1.0-2*(q.x*q.x + q.z*q.z), .z = 2*(q.y*q.z - q.x*q.w),     .w = 0.0},
-            .r2 = .{.x = 2*(q.x*q.z - q.y*q.w),     .y = 2*(q.y*q.z + q.x*q.w),     .z = 1.0-2*(q.x*q.x + q.y*q.y), .w = 0.0},
-            .r3 = .{.x = 0.0,                       .y = 0.0,                       .z = 0.0,                       .w = 1.0},
+            .r0 = .{.x = 1.0-2*(q.val.y*q.val.y + q.val.z*q.val.z), .y = 2*(q.val.x*q.val.y - q.val.z*q.val.w),     .z = 2*(q.val.x*q.val.z + q.val.y*q.val.w),     .w = 0.0},
+            .r1 = .{.x = 2*(q.val.x*q.val.y + q.val.z*q.val.w),     .y = 1.0-2*(q.val.x*q.val.x + q.val.z*q.val.z), .z = 2*(q.val.y*q.val.z - q.val.x*q.val.w),     .w = 0.0},
+            .r2 = .{.x = 2*(q.val.x*q.val.z - q.val.y*q.val.w),     .y = 2*(q.val.y*q.val.z + q.val.x*q.val.w),     .z = 1.0-2*(q.val.x*q.val.x + q.val.y*q.val.y), .w = 0.0},
+            .r3 = .{.x = 0.0,                                       .y = 0.0,                                       .z = 0.0,                                       .w = 1.0},
         };
     }
 
-    pub fn fromQuatAndPos(quat: vec.Vector4, pos: vec.Vector3d) Mat4 {
-        var out: Mat4 = fromQuat(quat);
+    pub fn fromQuatAndPos(q: quat.Quaternion, pos: vec.Vector3d) Mat4 {
+        var out: Mat4 = fromQuat(q);
 
         out.r0.w = pos.x;
         out.r1.w = pos.y;
@@ -202,28 +202,28 @@ test "Translation test" {
 }
 
 test "Rotation test 1" {
-    var matrix: Mat4 = Mat4.fromQuat(.{.w = 0.0, .x = 0.0, .y = 0.0, .z = 1.0}); //Rotate 180 degrees on the Z axis
+    var matrix: Mat4 = Mat4.fromQuat(quat.Quaternion.fromAxisAngle(.{.x = 0.0, .y = 0.0, .z = 1.0}, std.math.degreesToRadians(180.0)));
     const vector: vec.Vector4 = .{.w = 1.0, .x = 2.0, .y = 1.0, .z = 0.0};
     const result: vec.Vector4 = matrix.multVector4(vector);
     try result.expectEqual(.{.w = 1.0, .x = -2.0, .y = -1.0, .z = 0.0}, 0.01);
 }
 
 test "Rotation test 2" {
-    var matrix: Mat4 = Mat4.fromQuat(.{.w = 0.707, .x = 0.0, .y = 0.707, .z = 0.0}); //Rotate 90 degrees on the Y axis
+    var matrix: Mat4 = Mat4.fromQuat(quat.Quaternion.fromAxisAngle(.{.x = 0.0, .y = 1.0, .z = 0.0}, std.math.degreesToRadians(90.0)));
     const vector: vec.Vector4 = .{.w = 1.0, .x = 2.0, .y = 1.0, .z = 0.0};
     const result: vec.Vector4 = matrix.multVector4(vector);
     try result.expectEqual(.{.w = 1.0, .x = 0.0, .y = 1.0, .z = -2.0}, 0.01);
 }
 
 test "Rotation and translation test" {
-    var matrix: Mat4 = Mat4.fromQuat(.{.w = 0.707, .x = 0.0, .y = 0.707, .z = 0.0}); //Rotate 90 degrees on the Y axis
+    var matrix: Mat4 = Mat4.fromQuat(quat.Quaternion.fromAxisAngle(.{.x = 0.0, .y = 1.0, .z = 0.0}, std.math.degreesToRadians(90.0)));
     const vector: vec.Vector4 = .{.w = 1.0, .x = 2.0, .y = 1.0, .z = 0.0};
     const result: vec.Vector4 = matrix.multVector4(vector);
     try result.expectEqual(.{.w = 1.0, .x = 0.0, .y = 1.0, .z = -2.0}, 0.01);
 }
 
 test "Matrix-Matrix multiplication test" {
-    var rotMatrix: Mat4 = Mat4.fromQuat(.{.w = 0.707, .x = 0.0, .y = 0.707, .z = 0.0}); //Rotate 90 degrees on the Y axis
+    var rotMatrix: Mat4 = Mat4.fromQuat(quat.Quaternion.fromAxisAngle(.{.x = 0.0, .y = 1.0, .z = 0.0}, std.math.degreesToRadians(90.0)));
     var posMatrix: Mat4 = Mat4.fromPos(.{.x = 3.0, .y = 2.0, .z = -1.0});
     var composite: Mat4 = Mat4.multMatrix4(rotMatrix, posMatrix);
     
