@@ -248,12 +248,14 @@ pub fn main() !void {
         gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
         
         
+        const view: mat.Mat4 = camera.viewMatrix();
+        
         gl.UseProgram(planetShaderID);
         if (useCam2) {
             setShaderMatrix(planetShaderID, "view", camera2.viewMatrix());
             setShaderMatrix(planetShaderID, "projection", camera2.projectionMatrix());
         } else {
-            setShaderMatrix(planetShaderID, "view", camera.viewMatrix());
+            setShaderMatrix(planetShaderID, "view", view);
             setShaderMatrix(planetShaderID, "projection", camera.projectionMatrix());
         }
         
@@ -280,7 +282,6 @@ pub fn main() !void {
         sphere.world = mat.Mat4.fromQuat(q).invertPosRot();
         setShaderMatrix(planetShaderID, "view", sphere.world);
         sphere.world = sphere.world.setPos(.{.x = 4000000.0, .y = 0.0, .z = 0.0});
-        sphere.world = mat.Mat4.multMatrix4(camera.viewMatrix(), sphere.world);
         
         //sphere2.world = mat.Mat4.fromQuatAndPos(vec.Vector4.normalize(.{.w = 1.0, .x = 0.0, .y = 0.0, .z = 0.0}), .{.x = 3.0, .y = 0.0, .z = 0.0});
         //sphere2.world = mat.Mat4.lookAt(planetForward, planetAxis).invertPosRot();
@@ -308,7 +309,7 @@ pub fn main() !void {
         gl.Uniform1i(gl.GetUniformLocation(planetShaderID, "xHeight"), 3);
         gl.Uniform1i(gl.GetUniformLocation(planetShaderID, "yHeight"), 4);
         gl.Uniform1i(gl.GetUniformLocation(planetShaderID, "zHeight"), 5);
-        sphere.draw();
+        sphere.draw(view);
         
         
         gl.UseProgram(shaderID);
@@ -317,20 +318,20 @@ pub fn main() !void {
             setShaderMatrix(shaderID, "view", camera2.viewMatrix());
             setShaderMatrix(shaderID, "projection", camera2.projectionMatrix());
         } else {
-            setShaderMatrix(shaderID, "view", camera.viewMatrix());
+            setShaderMatrix(shaderID, "view", view);
             setShaderMatrix(shaderID, "projection", camera.projectionMatrix());
         }
         
-        //sphere2.draw();
+        //sphere2.draw(view);
         
         monkey.world = mat.Mat4.fromPos(.{.x = 4000000.0-3.0, .y = 0.0, .z = 0.0});
-        monkey.draw();
+        monkey.draw(view);
         
         gl.PolygonMode(gl.FRONT_AND_BACK, gl.LINE);
         frustum.world = camera.viewMatrix().invertPosRot();
         
         if (useCam2) {
-            frustum.draw();
+            frustum.draw(view);
         }
         
         if (!wireFrame) {
@@ -338,7 +339,7 @@ pub fn main() !void {
         }
         
         gl.Disable(gl.DEPTH_TEST);
-        //origin.draw();
+        //origin.draw(view);
         gl.Enable(gl.DEPTH_TEST);
         
         window.swapBuffers();
@@ -735,8 +736,8 @@ const Model = struct {
         gl.DeleteVertexArrays(1, @ptrCast(&model.VAO));
     }
     
-    pub fn draw(model: Model) void {
-        setShaderMatrix(model.shader, "world", model.world);
+    pub fn draw(model: Model, view: mat.Mat4) void {
+        setShaderMatrix(model.shader, "world", view.multMatrix4(model.world));
         gl.BindVertexArray(model.VAO);
         gl.DrawElements(gl.TRIANGLES, @intCast(model.nIndices), gl.UNSIGNED_INT, 0);
         //gl.DrawArrays(gl.TRIANGLES, 0, @intCast(model.nTriangles));
