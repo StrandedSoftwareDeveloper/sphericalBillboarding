@@ -25,6 +25,7 @@ var leftPressed: bool = false;
 var rightPressed: bool = false;
 var upPressed: bool = false;
 var downPressed: bool = false;
+var runPressed: bool = false;
 var mouseCaptured: bool = false;
 var wireFrame: bool = false;
 var useCam2: bool = false;
@@ -32,7 +33,7 @@ var doTime: bool = true;
 
 var camera: Camera = .{.pos = .{.x = 4_000_000.0, .y = 0.0, .z = -5.0}, //.rot = .{.x = 0.0, .y = 0.0, .z = 0.0, .w = 1.0},
     .forward = .{.x = 0.0, .y = 0.0, .z = 1.0}, .up = .{.x = 0.0, .y = 1.0, .z = 0.0}, .right = .{.x = 1.0, .y = 0.0, .z = 0.0},
-    .fov = 90.0, .nearClip = 0.01, .farClip = 100.0, .speed = 0.01, .sensitivity = 0.005, .aspect = 640.0/480.0,
+    .fov = 90.0, .nearClip = 0.01, .farClip = 100.0, .speed = 0.001, .sensitivity = 0.005, .aspect = 640.0/480.0,
 };
 
 var camera2: Camera = .{.pos = .{.x = 0.0, .y = 0.0, .z = -5.0}, //.rot = .{.x = 0.0, .y = 0.0, .z = 0.0, .w = 1.0},
@@ -75,6 +76,9 @@ fn keyCallback(window: glfw.Window, key: glfw.Key, scancode: i32, action: glfw.A
         },
         .q, .left_shift => {
             downPressed = action != .release;
+        },
+        .left_control => {
+            runPressed = action != .release;
         },
         .f => {
             if (action == .press) {
@@ -172,11 +176,17 @@ pub fn main() !void {
     
     std.debug.print("Loading/generating models...\n", .{});
     
-    var sphere: Model = try Model.load("models/cubeSphere.obj", planetShaderID, allocator); //try Model.sphere(planetShaderID, allocator);
+    const lod: u32 = 55;
+    var sphereVerts: std.ArrayList(vec.Vector3f) = std.ArrayList(vec.Vector3f).init(allocator);
+    defer sphereVerts.deinit();
+    var sphere: Model = try Model.quadSphere(planetShaderID, lod, &sphereVerts, allocator);//try Model.load("models/cubeSphere.obj", planetShaderID, allocator);
     defer sphere.deinit();
     
-    var sphere2: Model = try Model.sphere(shaderID, allocator);
-    defer sphere2.deinit();
+    var rotatedSphereVerts: []vec.Vector3f = try allocator.alloc(vec.Vector3f, sphereVerts.items.len);
+    defer allocator.free(rotatedSphereVerts);
+    
+    //var sphere2: Model = try Model.ringSphere(shaderID, allocator);
+    //defer sphere2.deinit();
     
     var monkey: Model = try Model.load("models/Suzanne.obj", shaderID, allocator);
     defer monkey.deinit();
@@ -211,10 +221,20 @@ pub fn main() !void {
     var zHeight: Texture = Texture.load(allocator, "textures/heightZ.png.raw");
     defer zHeight.unload(allocator);
     
+    var currentLook: vec.Vector3d = vec.Vector3d.zero();
+    var currentUp: vec.Vector3d = vec.Vector3d.zero();
+    var currentRight: vec.Vector3d = vec.Vector3d.zero();
     const startTime: i64 = std.time.milliTimestamp();
     var time: f64 = 0.0;
+    var frame: usize = 0;
+    doTime = false;
     // Wait for the user to close the window.
     while (!window.shouldClose()) {
+        if (runPressed) {
+            camera.speed = 0.001;
+        } else {
+            camera.speed = 0.01;
+        }
         if (forwardPressed) {
             camera.pos = camera.pos.add(camera.forward.multScalar(camera.speed));
         }
@@ -233,8 +253,12 @@ pub fn main() !void {
         if (downPressed) {
             camera.pos = camera.pos.sub(camera.up.multScalar(camera.speed));
         }
+        
+        camera.forward = vec.Vector3d.sub(.{.x = 4000000.0, .y = 0.0, .z = 0.0}, camera.pos).normalize();
+        camera.updateVectors();
+        
         //std.debug.print("x:{d:.2} y:{d:.2} z:{d:.2}\n", .{camera.pos.x, camera.pos.y, camera.pos.z});
-        camera.pos.y = 0.0;
+        //camera.pos.y = 0.0;
         
         if (mouseCaptured) {
             window.setInputModeCursor(.disabled);
@@ -264,22 +288,38 @@ pub fn main() !void {
         }
         
         sphere.world = mat.Mat4.fromAxisAngle(.{.x = 0.0, .y = 1.0, .z = 0.0}, time * std.math.tau * 0.01);
-        sphere.world = sphere.world.multMatrix4(mat.Mat4.fromAxisAngle(.{.x = 0.0, .y = 0.0, .z = 1.0}, std.math.degreesToRadians(0.0)));
+        sphere.world = sphere.world.multMatrix4(mat.Mat4.fromAxisAngle(.{.x = 0.0, .y = 0.0, .z = 1.0}, std.math.degreesToRadians(23.44)));
         //sphere.world = mat.Mat4.identity();
         setShaderMatrix(planetShaderID, "sphereWorld", sphere.world);
         
-        const forward: vec.Vector3d = vec.Vector3d.sub(.{.x = 4000000.0, .y = 0.0, .z = 0.0}, camera.pos).normalize();
-        const up: vec.Vector3d = .{.x = 0.0, .y = 1.0, .z = 0.0};
+        const targetLook: vec.Vector3d = vec.Vector3d.sub(.{.x = 4000000.0, .y = 0.0, .z = 0.0}, camera.pos).normalize();
+        //const up: vec.Vector3d = .{.x = 0.0, .y = 1.0, .z = 0.0};
+        if (frame == 0) {
+            currentLook = targetLook;
+            currentUp = .{.x = 0.0, .y = 1.0, .z = 0.0};
+            currentRight = currentUp.cross(currentLook).normalize();
+            currentUp = currentLook.cross(currentRight).normalize();
+        }
         
-        sphere.world = mat.Mat4.lookAt(forward, up);
+        const currentLookMat: mat.Mat4 = mat.Mat4.lookAt(currentLook, currentUp).invertPosRot();
+        for (0..rotatedSphereVerts.len) |i| {
+            const rotatedVert: vec.Vector4 = currentLookMat.multVector4(.{.x = sphereVerts.items[i].x, .y = sphereVerts.items[i].y, .z = sphereVerts.items[i].z, .w = 1.0});
+            rotatedSphereVerts[i] = .{.x = @floatCast(rotatedVert.x), .y = @floatCast(rotatedVert.y), .z = @floatCast(rotatedVert.z)};
+        }
+        
+        currentLook = findClosestVertex(rotatedSphereVerts, targetLook);
+        
+        currentUp = currentLook.cross(currentRight).normalize();
+        currentRight = currentUp.cross(currentLook).normalize();
+        
+        sphere.world = mat.Mat4.lookAt(currentLook, currentUp).invertPosRot();
         //const q: quat.Quaternion = quat.Quaternion.fromMatrix(sphere.world);
-        const q: quat.Quaternion = quat.Quaternion.lookAt(forward, up);
-        //q.val.w = quantize(q.val.w, 0.1);
-        //var axisAngle: vec.Vector4 = q.toAxisAngle();
-        //axisAngle.w = quantize(axisAngle.w, 0.1);
-        //q = quat.Quaternion.fromAxisAngle(.{.x = axisAngle.x, .y = axisAngle.y, .z = axisAngle.z}, axisAngle.w);
-        //q.val = q.val.normalize();
-        sphere.world = mat.Mat4.fromQuat(q).invertPosRot();
+        
+        //const q: quat.Quaternion = quat.Quaternion.lookAt(currentLook, currentUp, lod);
+        
+        //sphere.world = mat.Mat4.fromQuat(q).invertPosRot();
+        
+        //sphere.world = mat.Mat4.identity();
         setShaderMatrix(planetShaderID, "view", sphere.world);
         sphere.world = sphere.world.setPos(.{.x = 4000000.0, .y = 0.0, .z = 0.0});
         
@@ -339,7 +379,8 @@ pub fn main() !void {
         }
         
         gl.Disable(gl.DEPTH_TEST);
-        //origin.draw(view);
+        origin.world = sphere.world;
+        origin.draw(view);
         gl.Enable(gl.DEPTH_TEST);
         
         window.swapBuffers();
@@ -347,7 +388,24 @@ pub fn main() !void {
         if (doTime) {
             time += 1.0;
         }
+        frame += 1;
     }
+}
+
+//Assumes both `dir` and all vertices in `verts` to be normalized
+fn findClosestVertex(verts: []vec.Vector3f, dir: vec.Vector3d) vec.Vector3d {
+    var closestVertex: vec.Vector3d = vec.Vector3d.zero();
+    var closestVertexDist: f64 = -99999.0;
+    for (0..verts.len) |i| {
+        const vert: vec.Vector3d = .{.x = verts[i].x, .y = verts[i].y, .z = verts[i].z};
+        const dot: f64 = vert.dot(dir);
+        if (dot > closestVertexDist) { //More aligned vectors will have a higher dot product
+            closestVertexDist = dot;
+            closestVertex = vert;
+        }
+    }
+    
+    return closestVertex;
 }
 
 const Texture = struct {
@@ -569,7 +627,132 @@ const Model = struct {
         return out;
     }
     
-    pub fn sphere(shader: u32, allocator: std.mem.Allocator) !Model {
+    pub fn quadSphere(shader: u32, numVertsWide: u32, verts: *std.ArrayList(vec.Vector3f), allocator: std.mem.Allocator) !Model {
+        var out: Model = undefined;
+        out.allocator = allocator;
+        out.shader = shader;
+        
+        out.world = mat.Mat4.identity();
+        
+        gl.GenVertexArrays(1, @ptrCast(&out.VAO));
+        gl.GenBuffers(1, @ptrCast(&out.VBO));
+        gl.GenBuffers(1, @ptrCast(&out.EBO));
+        
+        gl.BindVertexArray(out.VAO);
+        gl.BindBuffer(gl.ARRAY_BUFFER, out.VBO);
+        
+        
+        
+        
+        //verts: *std.ArrayList(vec.Vector3), indices: *std.ArrayList(usize)
+        //var verts: std.ArrayList(vec.Vector3f) = std.ArrayList(vec.Vector3f).init(allocator);
+        //defer verts.deinit();
+        
+        var indices: std.ArrayList(u32) = std.ArrayList(u32).init(allocator);
+        defer indices.deinit();
+        
+        var yVerts: []vec.Vector3f = try allocator.alloc(vec.Vector3f, numVertsWide);
+        defer allocator.free(yVerts);
+        var zVerts: []vec.Vector3f = try allocator.alloc(vec.Vector3f, numVertsWide);
+        defer allocator.free(zVerts);
+        
+        for (0..numVertsWide) |i| {
+            const angle: f32 = @as(f32, @floatFromInt(i)) / @as(f32, @floatFromInt(numVertsWide-1)) * std.math.pi * 0.5 - std.math.pi * 0.25;
+            var point: vec.Vector3f = .{.x = std.math.cos(angle), .y = std.math.sin(angle), .z = 0.0};
+            point = point.divideScalar(point.x);
+            
+            yVerts[i] = point;
+        }
+        
+        for (0..numVertsWide) |i| {
+            var point: vec.Vector3f = yVerts[i];
+            point.z = point.y;
+            point.y = 0.0;
+            
+            zVerts[i] = point;
+        }
+        
+        for (0..numVertsWide) |y| {
+            for (0..numVertsWide) |x| {
+                const pointX: vec.Vector3f = yVerts[x];
+                const pointY: vec.Vector3f = zVerts[y];
+                
+                const point: vec.Vector3f = vec.Vector3f.normalize(.{.x = pointX.y, .y = pointY.z, .z = -1.0});
+                //std.debug.print("{d:.2} {d:.2} {d:.2}\n", .{point.x, point.y, point.z});
+                
+                try verts.append(point);
+                //try indices.appendSlice(&[3]usize{verts.items.len-1, verts.items.len-1, verts.items.len-1});
+            }
+        }
+    
+        for (0..numVertsWide-1) |y| {
+            for (0..numVertsWide-1) |x| {
+                try indices.append(@intCast(y*numVertsWide+x));
+                try indices.append(@intCast(y*numVertsWide+x+1));
+                try indices.append(@intCast(y*numVertsWide+x+numVertsWide));
+                
+                try indices.append(@intCast(y*numVertsWide+x+1));
+                try indices.append(@intCast(y*numVertsWide+x+numVertsWide+1));
+                try indices.append(@intCast(y*numVertsWide+x+numVertsWide));
+            }
+        }
+    
+        const oneFaceVertNum: usize = verts.items.len;
+        for (1..4) |i| {
+            for (0..numVertsWide*numVertsWide) |j| {
+                var point: vec.Vector3f = verts.items[j];
+                const q: quat.Quaternion = quat.Quaternion.fromAxisAngle(.{.x = 0.0, .y = 1.0, .z = 0.0}, std.math.pi * 0.5 * @as(f32, @floatFromInt(i)));
+                point = q.multVec3f(point);
+                try verts.append(point);
+                //try indices.appendSlice(&[3]u32{@intCast(verts.items.len-1), @intCast(verts.items.len-1), @intCast(verts.items.len-1)});
+            }
+            
+            for (0..(numVertsWide-1)*(numVertsWide-1)*6) |j| {
+                var index: u32 = indices.items[j];
+                index += @as(u32, @intCast(oneFaceVertNum * i));
+                try indices.append(index);
+            }
+        }
+        
+        for (0..2) |i| {
+            for (0..numVertsWide*numVertsWide) |j| {
+                var point: vec.Vector3f = verts.items[j];
+                const q: quat.Quaternion = quat.Quaternion.fromAxisAngle(.{.x = 1.0, .y = 0.0, .z = 0.0}, std.math.pi * 0.5 * (@as(f32, @floatFromInt(i)) * 2.0 - 1.0));
+                point = q.multVec3f(point);
+                try verts.append(point);
+                //try indices.appendSlice(&[3]u32{@intCast(verts.items.len-1), @intCast(verts.items.len-1), @intCast(verts.items.len-1)});
+            }
+            
+            for (0..(numVertsWide-1)*(numVertsWide-1)*6) |j| {
+                var index: u32 = indices.items[j];
+                index += @as(u32, @intCast(oneFaceVertNum * (i+4)));
+                try indices.append(index);
+            }
+        }
+        
+        out.nIndices = indices.items.len;//object.meshes[0].indices.len;
+        out.nTriangles = 0; //Not used
+        
+        
+    
+        
+        
+        gl.BufferData(gl.ARRAY_BUFFER, @intCast(verts.items.len*@sizeOf(vec.Vector3f)), verts.items.ptr, gl.STATIC_DRAW);
+        
+        gl.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, out.EBO);
+        gl.BufferData(gl.ELEMENT_ARRAY_BUFFER, @intCast(indices.items.len*@sizeOf(u32)), indices.items.ptr, gl.STATIC_DRAW);
+        
+        gl.BindBuffer(gl.ARRAY_BUFFER, out.VBO);
+        gl.EnableVertexAttribArray(0);
+        gl.VertexAttribPointer(0, 3, gl.FLOAT, gl.FALSE, @sizeOf(vec.Vector3f), 0);
+        
+        gl.BindVertexArray(0);
+        
+        return out;
+    }
+
+    
+    pub fn ringSphere(shader: u32, verts: *std.ArrayList(vec.Vector3f), allocator: std.mem.Allocator) !Model {
         var out: Model = undefined;
         out.allocator = allocator;
         out.shader = shader;
@@ -590,8 +773,8 @@ const Model = struct {
         var finalVerts: std.ArrayList(vec.Vector3f) = std.ArrayList(vec.Vector3f).init(allocator);
         defer finalVerts.deinit();
         
-        var verts: std.ArrayList(vec.Vector3f) = std.ArrayList(vec.Vector3f).init(allocator);
-        defer verts.deinit();
+        //var verts: std.ArrayList(vec.Vector3f) = std.ArrayList(vec.Vector3f).init(allocator);
+        //defer verts.deinit();
         
         var indices: std.ArrayList(u32) = std.ArrayList(u32).init(allocator);
         defer indices.deinit();
@@ -599,7 +782,7 @@ const Model = struct {
         var ringVertexCounts: std.ArrayList(usize) = std.ArrayList(usize).init(allocator);
         defer ringVertexCounts.deinit();
         
-        var targetEdgeLength: f32 = 0.1;
+        var targetEdgeLength: f32 = 0.01;
         //const numRings: usize = @intFromFloat((std.math.pi / targetEdgeLength) * 0.9);
         var point: vec.Vector3f = .{.x = 0.0, .y = 0.0, .z = -1.0};
         try verts.append(point);

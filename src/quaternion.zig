@@ -21,7 +21,7 @@ pub const Quaternion = struct {
         return .{.val = .{.w = w, .x = x, .y = y, .z = z}};
     }
     
-    pub fn lookAt(forward: vec.Vector3d, up: vec.Vector3d) Quaternion {
+    pub fn lookAt(forward: vec.Vector3d, up: vec.Vector3d, lod: u32) Quaternion {
         _ = up;
         //const normalUp: vec.Vector3d = .{.x = 0.0, .y = 0.0, .z = 1.0}; //vec.Vector3d = up.cross(forward).normalize();
         //const rotAxis: vec.Vector3d = vec.Vector3d.cross(normalUp, forward).normalize();
@@ -30,8 +30,14 @@ pub const Quaternion = struct {
         const rise: f64 = forward.y;
         const run: f64 = projection.length();
         const slope: f64 = rise / run;
-        const q1: Quaternion = fromAxisAngle(.{.x = 0.0, .y = 1.0, .z = 0.0}, @mod(quantize(projection.getAngle() - std.math.pi * 0.5, std.math.tau / 32.0), std.math.tau));
-        const q2: Quaternion = fromAxisAngle(.{.x = 1.0, .y = 0.0, .z = 0.0}, quantize(std.math.atan(slope), std.math.tau / 32.0));
+        
+        //const snapAngle: f64 = std.math.tau / ((@as(f64, @floatFromInt(lod)) - 1.0) * 4.0);
+        _ = lod;
+        
+        //const q1: Quaternion = fromAxisAngle(.{.x = 0.0, .y = 1.0, .z = 0.0}, @mod(quantize(projection.getAngle() - std.math.pi * 0.5, snapAngle), std.math.tau));
+        //const q2: Quaternion = fromAxisAngle(.{.x = 1.0, .y = 0.0, .z = 0.0}, quantize(std.math.atan(slope), snapAngle));
+        const q1: Quaternion = fromAxisAngle(.{.x = 0.0, .y = 1.0, .z = 0.0}, @mod(projection.getAngle() - std.math.pi * 0.5, std.math.tau));
+        const q2: Quaternion = fromAxisAngle(.{.x = 1.0, .y = 0.0, .z = 0.0}, std.math.atan(slope));
         return q2.multQuat(q1);
     }
     
@@ -50,11 +56,18 @@ pub const Quaternion = struct {
     }
     
     //Adapted from https://github.com/robrohan/r2/blob/main/r2_maths.h
-    pub fn multVec3(q: Quaternion, v: vec.Vector3d) vec.Vector3d {
+    pub fn multVec3d(q: Quaternion, v: vec.Vector3d) vec.Vector3d {
         const inv: Quaternion = q.conjugate();
         var temp: Quaternion = q.multQuat(.{.val = .{.w = 0.0, .x = v.x, .y = v.y, .z = v.z}});
         temp = temp.multQuat(inv);
         return .{.x = temp.val.x, .y = temp.val.y, .z = temp.val.z};
+    }
+    
+    pub fn multVec3f(q: Quaternion, v: vec.Vector3f) vec.Vector3f {
+        const inv: Quaternion = q.conjugate();
+        var temp: Quaternion = q.multQuat(.{.val = .{.w = 0.0, .x = v.x, .y = v.y, .z = v.z}});
+        temp = temp.multQuat(inv);
+        return .{.x = @floatCast(temp.val.x), .y = @floatCast(temp.val.y), .z = @floatCast(temp.val.z)};
     }
     
     //Adapted from https://github.com/robrohan/r2/blob/main/r2_maths.h
@@ -81,6 +94,11 @@ pub const Quaternion = struct {
                 .z = a1*d2 + b1*c2 - c1*b2 + d1*a2,
             }
         };
+    }
+    
+    //Implemented from https://math.stackexchange.com/a/1375793
+    pub fn inverse(q: Quaternion) Quaternion {
+        return .{.val = q.conjugate().val.divideScalar(q.val.length2())};
     }
 };
 

@@ -1,0 +1,14 @@
+Old solution, didn't work. See below for the solution used in the current commit.
+- Find the inverse quaternion for currentLook and apply it to targetLook to get lookOffset ✔
+- Find the vertex on an unrotated sphere that aligns best with lookOffset ✔
+- The normalized position of that vertex becomes snappedLookOffset ✔
+- Apply snappedLookOffset to currentLook to get the new currentLook ✔
+
+
+New plan:
+- Make a matrix from currentLook and currentUp ✔
+- Apply that matrix to an unrotated sphere on the CPU ✔
+- Find the (rotated) vertex closest to targetLook ✔
+- The normalized position of that vertex becomes the new currentLook ✔
+- Use currentRight and the new currentLook to reorthogonalize currentUp ✔
+- Reorthogonalize currentRight ✔

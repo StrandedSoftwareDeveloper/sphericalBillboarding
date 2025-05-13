@@ -53,7 +53,7 @@ void main() {
     vec3 objPos = sphereWorld[3].xyz;
     
     vec4 height4 = sampleTriplanar(normalize(FragPos));
-    float height = height4.x * 0.1 + 1.0;
+    float height = height4.x * 0.1/*0.011279*/ + 1.0;
     
     gl_Position = projection * /*view */ world * vec4(aPos * height, 1.0);
 }
